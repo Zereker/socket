@@ -160,6 +160,8 @@ func (c *Conn) readLoop(ctx context.Context) error {
 			if err != nil {
 				return err
 			}
+
+			data = data[:c.opts.maxReadLength]
 		}
 	}
 }
