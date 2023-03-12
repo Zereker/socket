@@ -16,7 +16,7 @@ var (
 
 // Conn represents a client connection to a TCP server.
 type Conn struct {
-	rawConn net.Conn
+	rawConn *net.TCPConn
 
 	opts options
 
@@ -31,7 +31,7 @@ const (
 
 // NewConn returns a new client connection which has not started to
 // serve requests yet.
-func NewConn(conn net.Conn, opt ...Option) (*Conn, error) {
+func NewConn(conn *net.TCPConn, opt ...Option) (*Conn, error) {
 	var opts options
 	for _, o := range opt {
 		o(&opts)
@@ -69,7 +69,7 @@ func checkOptions(opts *options) error {
 	return nil
 }
 
-func newClientConnWithOptions(c net.Conn, opts options) *Conn {
+func newClientConnWithOptions(c *net.TCPConn, opts options) *Conn {
 	cc := &Conn{
 		rawConn:   c,
 		opts:      opts,

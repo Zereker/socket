@@ -45,7 +45,7 @@ func newHandler(connID int64) *Server {
 	return &Server{connID: connID, connections: make(map[int64]*socket.Conn)}
 }
 
-func (s *Server) Handle(conn net.Conn) {
+func (s *Server) Handle(conn *net.TCPConn) {
 	connID := atomic.AddInt64(&s.connID, 1)
 
 	codecOption := socket.CustomCodecOption(new(codec))

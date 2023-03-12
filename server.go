@@ -6,15 +6,15 @@ import (
 )
 
 type Handler interface {
-	Handle(conn net.Conn)
+	Handle(conn *net.TCPConn)
 }
 
 type server struct {
-	listener net.Listener
+	listener *net.TCPListener
 }
 
-func New(addr net.Addr) (*server, error) {
-	listener, err := net.Listen(addr.Network(), addr.String())
+func New(addr *net.TCPAddr) (*server, error) {
+	listener, err := net.ListenTCP(addr.Network(), addr)
 	if err != nil {
 		return nil, err
 	}
@@ -26,7 +26,7 @@ func New(addr net.Addr) (*server, error) {
 
 func (s *server) Serve(handler Handler) {
 	for {
-		conn, err := s.listener.Accept()
+		conn, err := s.listener.AcceptTCP()
 		if err != nil {
 			runtime.Gosched()
 			continue
