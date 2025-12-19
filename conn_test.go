@@ -683,7 +683,14 @@ func TestConn_close(t *testing.T) {
 		t.Fatalf("NewConn failed: %v", err)
 	}
 
-	conn.close()
+	if err := conn.Close(); err != nil {
+		t.Errorf("Close failed: %v", err)
+	}
+
+	// Verify IsClosed returns true
+	if !conn.IsClosed() {
+		t.Error("expected IsClosed to return true after Close")
+	}
 
 	// Verify connection is closed by trying to write
 	_, err = serverConn.Write([]byte("test"))

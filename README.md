@@ -117,6 +117,21 @@ socket.OnErrorOption(func(err error) socket.ErrorAction {
 })
 ```
 
+## Connection Management
+
+```go
+// Gracefully close the connection
+conn.Close()
+
+// Check if connection is closed
+if conn.IsClosed() {
+    // Handle closed connection
+}
+
+// Get remote address
+addr := conn.Addr()
+```
+
 ## Write Methods
 
 Three ways to send messages:
@@ -131,6 +146,8 @@ conn.WriteBlocking(ctx, msg)
 // Write with timeout
 conn.WriteTimeout(msg, 5*time.Second)
 ```
+
+All write methods return `ErrConnectionClosed` if the connection is closed.
 
 ## Custom Logger
 
