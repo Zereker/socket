@@ -50,7 +50,9 @@ func (l *limitedReader) Read(p []byte) (n int, err error) {
 	return
 }
 
-// reset resets the reader with a new limit for reuse.
+// reset resets the limit counter for reuse with a new message.
+// Only remaining is reset because the underlying reader (bufio.Reader)
+// maintains its own buffer state and continues reading from where it left off.
 func (l *limitedReader) reset(limit int64) {
 	l.remaining = limit
 }
@@ -169,7 +171,7 @@ func (c *Conn) Run(ctx context.Context) error {
 	err := group.Wait()
 	c.closeConn()
 
-	if err != nil && err != context.Canceled {
+	if err != nil && !errors.Is(err, context.Canceled) {
 		c.logger.Info("connection closed with error", "addr", c.Addr(), "error", err)
 	} else {
 		c.logger.Info("connection closed", "addr", c.Addr())

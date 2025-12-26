@@ -23,8 +23,9 @@ type Server struct {
 	logger          Logger
 	shutdownTimeout time.Duration
 
-	mu       sync.Mutex
-	shutdown bool
+	mu          sync.Mutex
+	shutdown    bool
+	shutdownNow chan struct{} // signals immediate shutdown, bypassing timeout
 }
 
 // ServerOption configures a Server.
@@ -60,8 +61,9 @@ func New(addr *net.TCPAddr, opts ...ServerOption) (*Server, error) {
 	}
 
 	s := &Server{
-		listener: listener,
-		logger:   slog.Default(),
+		listener:    listener,
+		logger:      slog.Default(),
+		shutdownNow: make(chan struct{}),
 	}
 
 	for _, opt := range opts {
@@ -74,8 +76,9 @@ func New(addr *net.TCPAddr, opts ...ServerOption) (*Server, error) {
 // Serve starts accepting connections and dispatching them to the handler.
 // It blocks until the context is canceled or an unrecoverable error occurs.
 // When the context is canceled, it stops accepting new connections gracefully.
-// If ServerShutdownTimeoutOption is set, it waits for the specified duration
-// before stopping to accept new connections.
+// If ServerShutdownTimeoutOption is set, the server waits up to the specified
+// duration before stopping, allowing existing handlers to complete. Call Close()
+// to bypass the timeout and shut down immediately.
 func (s *Server) Serve(ctx context.Context, handler Handler) error {
 	s.logger.Info("server started", "addr", s.listener.Addr())
 
@@ -83,10 +86,16 @@ func (s *Server) Serve(ctx context.Context, handler Handler) error {
 	go func() {
 		<-ctx.Done()
 
-		// Wait for shutdown timeout if configured
+		// Wait for shutdown timeout if configured, but allow early exit via Close()
 		if s.shutdownTimeout > 0 {
 			s.logger.Info("graceful shutdown initiated", "timeout", s.shutdownTimeout)
-			time.Sleep(s.shutdownTimeout)
+			select {
+			case <-time.After(s.shutdownTimeout):
+				// Timeout expired, proceed with shutdown
+			case <-s.shutdownNow:
+				// Close() was called, skip remaining timeout
+				s.logger.Debug("shutdown timeout bypassed via Close()")
+			}
 		}
 
 		s.mu.Lock()
@@ -124,11 +133,20 @@ func (s *Server) Serve(ctx context.Context, handler Handler) error {
 }
 
 // Close stops the server by closing the underlying listener.
+// If a shutdown timeout is configured, Close() bypasses the remaining timeout.
 // Any blocked Accept calls will return with an error.
 func (s *Server) Close() error {
 	s.mu.Lock()
 	s.shutdown = true
 	s.mu.Unlock()
+
+	// Signal to bypass any pending shutdown timeout
+	select {
+	case s.shutdownNow <- struct{}{}:
+	default:
+		// Channel already has a signal or no one is listening
+	}
+
 	return s.listener.Close()
 }
 
