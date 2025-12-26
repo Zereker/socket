@@ -28,15 +28,15 @@ func TestBufferSizeOption(t *testing.T) {
 	}
 }
 
-func TestHeartbeatOption(t *testing.T) {
-	heartbeat := time.Minute * 5
-	opt := HeartbeatOption(heartbeat)
+func TestIdleTimeoutOption(t *testing.T) {
+	timeout := time.Minute * 5
+	opt := IdleTimeoutOption(timeout)
 
 	var opts options
 	opt(&opts)
 
-	if opts.heartbeat != heartbeat {
-		t.Errorf("heartbeat = %v, want %v", opts.heartbeat, heartbeat)
+	if opts.idleTimeout != timeout {
+		t.Errorf("idleTimeout = %v, want %v", opts.idleTimeout, timeout)
 	}
 }
 
@@ -112,7 +112,7 @@ func TestOptions_MultipleOptions(t *testing.T) {
 	logger := &mockLogger{}
 	onMessage := func(msg Message) error { return nil }
 	onError := func(err error) ErrorAction { return Continue }
-	heartbeat := time.Second * 45
+	idleTimeout := time.Second * 45
 	bufferSize := 50
 	maxSize := 8192
 
@@ -121,7 +121,7 @@ func TestOptions_MultipleOptions(t *testing.T) {
 		CustomCodecOption(codec),
 		OnMessageOption(onMessage),
 		OnErrorOption(onError),
-		HeartbeatOption(heartbeat),
+		IdleTimeoutOption(idleTimeout),
 		BufferSizeOption(bufferSize),
 		MessageMaxSize(maxSize),
 		LoggerOption(logger),
@@ -140,8 +140,8 @@ func TestOptions_MultipleOptions(t *testing.T) {
 	if opts.onError == nil {
 		t.Error("onError not set")
 	}
-	if opts.heartbeat != heartbeat {
-		t.Errorf("heartbeat = %v, want %v", opts.heartbeat, heartbeat)
+	if opts.idleTimeout != idleTimeout {
+		t.Errorf("idleTimeout = %v, want %v", opts.idleTimeout, idleTimeout)
 	}
 	if opts.bufferSize != bufferSize {
 		t.Errorf("bufferSize = %d, want %d", opts.bufferSize, bufferSize)

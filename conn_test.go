@@ -161,7 +161,7 @@ func TestNewConn_WithAllOptions(t *testing.T) {
 		OnMessageOption(onMessage),
 		OnErrorOption(onError),
 		BufferSizeOption(10),
-		HeartbeatOption(time.Minute),
+		IdleTimeoutOption(time.Minute),
 		MessageMaxSize(2048),
 	)
 
@@ -173,8 +173,8 @@ func TestNewConn_WithAllOptions(t *testing.T) {
 		t.Errorf("bufferSize = %d, want 10", conn.opts.bufferSize)
 	}
 
-	if conn.opts.heartbeat != time.Minute {
-		t.Errorf("heartbeat = %v, want %v", conn.opts.heartbeat, time.Minute)
+	if conn.opts.idleTimeout != time.Minute {
+		t.Errorf("idleTimeout = %v, want %v", conn.opts.idleTimeout, time.Minute)
 	}
 
 	if conn.opts.maxReadLength != 2048 {
@@ -204,8 +204,8 @@ func TestCheckOptions_DefaultValues(t *testing.T) {
 		t.Errorf("maxReadLength = %d, want %d", opts.maxReadLength, defaultMaxPackageLength)
 	}
 
-	if opts.heartbeat != time.Second*30 {
-		t.Errorf("heartbeat = %v, want %v", opts.heartbeat, time.Second*30)
+	if opts.idleTimeout != time.Second*30 {
+		t.Errorf("idleTimeout = %v, want %v", opts.idleTimeout, time.Second*30)
 	}
 
 	if opts.onError == nil {
@@ -455,7 +455,7 @@ func TestConn_Run_ReadWrite(t *testing.T) {
 	conn, err := NewConn(serverConn,
 		CustomCodecOption(codec),
 		OnMessageOption(onMessage),
-		HeartbeatOption(time.Second*5),
+		IdleTimeoutOption(time.Second*5),
 	)
 	if err != nil {
 		t.Fatalf("NewConn failed: %v", err)
@@ -510,7 +510,7 @@ func TestConn_Run_DecodeError(t *testing.T) {
 	conn, err := NewConn(serverConn,
 		CustomCodecOption(codec),
 		OnMessageOption(onMessage),
-		HeartbeatOption(time.Second*5),
+		IdleTimeoutOption(time.Second*5),
 	)
 	if err != nil {
 		t.Fatalf("NewConn failed: %v", err)
@@ -551,7 +551,7 @@ func TestConn_Run_OnMessageError(t *testing.T) {
 	conn, err := NewConn(serverConn,
 		CustomCodecOption(codec),
 		OnMessageOption(onMessage),
-		HeartbeatOption(time.Second*5),
+		IdleTimeoutOption(time.Second*5),
 	)
 	if err != nil {
 		t.Fatalf("NewConn failed: %v", err)
@@ -589,7 +589,7 @@ func TestConn_Run_WriteLoop(t *testing.T) {
 	conn, err := NewConn(serverConn,
 		CustomCodecOption(codec),
 		OnMessageOption(onMessage),
-		HeartbeatOption(time.Second*5),
+		IdleTimeoutOption(time.Second*5),
 	)
 	if err != nil {
 		t.Fatalf("NewConn failed: %v", err)
@@ -636,7 +636,7 @@ func TestConn_Run_ReadError_OnErrorReturnsContinue(t *testing.T) {
 		CustomCodecOption(codec),
 		OnMessageOption(onMessage),
 		OnErrorOption(onError),
-		HeartbeatOption(time.Millisecond*100),
+		IdleTimeoutOption(time.Millisecond*100),
 	)
 	if err != nil {
 		t.Fatalf("NewConn failed: %v", err)
@@ -708,7 +708,7 @@ func TestNewClientConnWithOptions(t *testing.T) {
 		codec:         &mockCodec{},
 		onMessage:     func(msg Message) error { return nil },
 		bufferSize:    5,
-		heartbeat:     time.Minute,
+		idleTimeout:   time.Minute,
 		maxReadLength: 4096,
 		logger:        defaultLogger(),
 	}
@@ -719,8 +719,8 @@ func TestNewClientConnWithOptions(t *testing.T) {
 		t.Error("rawConn not set correctly")
 	}
 
-	if conn.opts.heartbeat != time.Minute {
-		t.Errorf("heartbeat = %v, want %v", conn.opts.heartbeat, time.Minute)
+	if conn.opts.idleTimeout != time.Minute {
+		t.Errorf("idleTimeout = %v, want %v", conn.opts.idleTimeout, time.Minute)
 	}
 
 	if cap(conn.sendMsg) != 5 {
@@ -737,7 +737,7 @@ func TestConn_WriteLoop_WriteError(t *testing.T) {
 	conn, err := NewConn(serverConn,
 		CustomCodecOption(codec),
 		OnMessageOption(onMessage),
-		HeartbeatOption(time.Second*5),
+		IdleTimeoutOption(time.Second*5),
 	)
 	if err != nil {
 		t.Fatalf("NewConn failed: %v", err)
@@ -778,7 +778,7 @@ func TestConn_Write_OnErrorReturnsContinue(t *testing.T) {
 		CustomCodecOption(codec),
 		OnMessageOption(onMessage),
 		OnErrorOption(onError),
-		HeartbeatOption(time.Millisecond*100),
+		IdleTimeoutOption(time.Millisecond*100),
 	)
 	if err != nil {
 		t.Fatalf("NewConn failed: %v", err)
@@ -825,7 +825,7 @@ func TestConn_WriteLoop_ContextCanceled(t *testing.T) {
 	conn, err := NewConn(serverConn,
 		CustomCodecOption(codec),
 		OnMessageOption(onMessage),
-		HeartbeatOption(time.Millisecond*100),
+		IdleTimeoutOption(time.Millisecond*100),
 	)
 	if err != nil {
 		t.Fatalf("NewConn failed: %v", err)
@@ -867,7 +867,7 @@ func TestConn_Write_Success(t *testing.T) {
 	conn, err := NewConn(serverConn,
 		CustomCodecOption(codec),
 		OnMessageOption(onMessage),
-		HeartbeatOption(time.Second*5),
+		IdleTimeoutOption(time.Second*5),
 	)
 	if err != nil {
 		t.Fatalf("NewConn failed: %v", err)
@@ -1013,7 +1013,7 @@ func TestConn_write_ErrorWithOnErrorDisconnect(t *testing.T) {
 	conn, err := NewConn(serverConn,
 		CustomCodecOption(codec),
 		OnMessageOption(onMessage),
-		HeartbeatOption(time.Millisecond*50),
+		IdleTimeoutOption(time.Millisecond*50),
 	)
 	if err != nil {
 		t.Fatalf("NewConn failed: %v", err)
@@ -1039,7 +1039,7 @@ func TestConn_writeLoop_WriteError_Direct(t *testing.T) {
 	conn, err := NewConn(serverConn,
 		CustomCodecOption(codec),
 		OnMessageOption(onMessage),
-		HeartbeatOption(time.Millisecond*50),
+		IdleTimeoutOption(time.Millisecond*50),
 	)
 	if err != nil {
 		t.Fatalf("NewConn failed: %v", err)
@@ -1062,4 +1062,125 @@ func TestConn_writeLoop_WriteError_Direct(t *testing.T) {
 	if err == nil {
 		t.Error("writeLoop should return error when write fails")
 	}
+}
+
+func TestConn_ReadLoop_MessageTooLarge(t *testing.T) {
+	serverConn, clientConn := createTestTCPPair(t)
+	defer serverConn.Close()
+	defer clientConn.Close()
+
+	// Set a small max message size
+	maxSize := 10
+	var receivedErr error
+
+	codec := &mockCodec{
+		decodeFunc: func(r io.Reader) (Message, error) {
+			// Try to read more than the limit
+			buf := make([]byte, maxSize+10)
+			_, err := io.ReadFull(r, buf)
+			if err != nil {
+				return nil, err
+			}
+			return mockMessage{body: buf}, nil
+		},
+	}
+
+	conn, err := NewConn(serverConn,
+		CustomCodecOption(codec),
+		OnMessageOption(func(msg Message) error { return nil }),
+		MessageMaxSize(maxSize),
+		OnErrorOption(func(err error) ErrorAction {
+			receivedErr = err
+			return Disconnect
+		}),
+		IdleTimeoutOption(time.Second),
+	)
+	if err != nil {
+		t.Fatalf("NewConn failed: %v", err)
+	}
+
+	// Send data larger than the limit
+	go func() {
+		largeData := make([]byte, maxSize+10)
+		clientConn.Write(largeData)
+	}()
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*2)
+	defer cancel()
+
+	runErr := conn.Run(ctx)
+
+	// Should get ErrMessageTooLarge
+	if !errors.Is(receivedErr, ErrMessageTooLarge) {
+		t.Errorf("expected ErrMessageTooLarge, got: %v (runErr: %v)", receivedErr, runErr)
+	}
+}
+
+func TestLimitedReader(t *testing.T) {
+	t.Run("within limit", func(t *testing.T) {
+		data := []byte("hello")
+		lr := newLimitedReader(NewBytesReader(data), 10)
+
+		buf := make([]byte, 10)
+		n, err := lr.Read(buf)
+		if err != nil && err != io.EOF {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if n != 5 {
+			t.Errorf("expected 5 bytes, got %d", n)
+		}
+	})
+
+	t.Run("exceeds limit", func(t *testing.T) {
+		data := []byte("hello world")
+		lr := newLimitedReader(NewBytesReader(data), 5)
+
+		buf := make([]byte, 10)
+		n, err := lr.Read(buf)
+		if err != nil {
+			t.Fatalf("first read error: %v", err)
+		}
+		if n != 5 {
+			t.Errorf("expected 5 bytes, got %d", n)
+		}
+
+		// Second read should return ErrMessageTooLarge
+		_, err = lr.Read(buf)
+		if !errors.Is(err, ErrMessageTooLarge) {
+			t.Errorf("expected ErrMessageTooLarge, got: %v", err)
+		}
+	})
+
+	t.Run("reset", func(t *testing.T) {
+		data := []byte("hello")
+		lr := newLimitedReader(NewBytesReader(data), 3)
+
+		buf := make([]byte, 3)
+		lr.Read(buf)
+
+		// After reset, should be able to read again
+		lr.reset(10)
+		if lr.remaining != 10 {
+			t.Errorf("remaining should be 10, got %d", lr.remaining)
+		}
+	})
+}
+
+// NewBytesReader creates a simple bytes reader for testing
+type bytesReader struct {
+	data []byte
+	pos  int
+}
+
+func NewBytesReader(data []byte) *bytesReader {
+	return &bytesReader{data: data}
+}
+
+func (r *bytesReader) Read(p []byte) (n int, err error) {
+	if r.pos >= len(r.data) {
+		return 0, io.EOF
+	}
+	n = copy(p, r.data[r.pos:])
+	r.pos += n
+	return n, nil
 }

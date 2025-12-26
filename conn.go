@@ -1,12 +1,13 @@
 // Package socket provides a simple TCP server framework for Go.
 // It supports custom message encoding/decoding, asynchronous I/O operations,
-// and connection management with heartbeat monitoring.
+// and connection management with idle timeout monitoring.
 package socket
 
 import (
 	"bufio"
 	"context"
 	"errors"
+	"io"
 	"net"
 	"sync/atomic"
 	"time"
@@ -20,18 +21,50 @@ var (
 	ErrInvalidCodec = errors.New("invalid codec callback")
 	// ErrInvalidOnMessage is returned when no message handler is provided.
 	ErrInvalidOnMessage = errors.New("invalid on message callback")
+	// ErrMessageTooLarge is returned when a message exceeds the maximum allowed size.
+	ErrMessageTooLarge = errors.New("message too large")
 )
 
 // ErrConnectionClosed is returned when operating on a closed connection.
 var ErrConnectionClosed = errors.New("connection closed")
 
+// limitedReader wraps a reader and returns ErrMessageTooLarge when the limit is exceeded.
+type limitedReader struct {
+	r         io.Reader
+	remaining int64
+}
+
+func newLimitedReader(r io.Reader, limit int64) *limitedReader {
+	return &limitedReader{r: r, remaining: limit}
+}
+
+func (l *limitedReader) Read(p []byte) (n int, err error) {
+	if l.remaining <= 0 {
+		return 0, ErrMessageTooLarge
+	}
+	if int64(len(p)) > l.remaining {
+		p = p[:l.remaining]
+	}
+	n, err = l.r.Read(p)
+	l.remaining -= int64(n)
+	return
+}
+
+// reset resets the limit counter for reuse with a new message.
+// Only remaining is reset because the underlying reader (bufio.Reader)
+// maintains its own buffer state and continues reading from where it left off.
+func (l *limitedReader) reset(limit int64) {
+	l.remaining = limit
+}
+
 // Conn represents a client connection to a TCP server.
 // It manages the underlying TCP connection, message encoding/decoding,
 // and provides read/write loops for asynchronous communication.
 type Conn struct {
-	rawConn *net.TCPConn
-	reader  *bufio.Reader
-	logger  Logger
+	rawConn       *net.TCPConn
+	reader        *bufio.Reader
+	limitedReader *limitedReader
+	logger        Logger
 
 	opts options
 
@@ -79,8 +112,8 @@ func checkOptions(opts *options) error {
 		return ErrInvalidOnMessage
 	}
 
-	if opts.heartbeat <= 0 {
-		opts.heartbeat = time.Second * 30
+	if opts.idleTimeout <= 0 {
+		opts.idleTimeout = time.Second * 30
 	}
 
 	if opts.codec == nil {
@@ -100,12 +133,14 @@ func checkOptions(opts *options) error {
 
 // newClientConnWithOptions creates a new Conn with the given options.
 func newClientConnWithOptions(c *net.TCPConn, opts options) *Conn {
+	reader := bufio.NewReaderSize(c, opts.maxReadLength)
 	cc := &Conn{
-		rawConn: c,
-		reader:  bufio.NewReaderSize(c, opts.maxReadLength),
-		logger:  opts.logger,
-		opts:    opts,
-		sendMsg: make(chan []byte, opts.bufferSize),
+		rawConn:       c,
+		reader:        reader,
+		limitedReader: newLimitedReader(reader, int64(opts.maxReadLength)),
+		logger:        opts.logger,
+		opts:          opts,
+		sendMsg:       make(chan []byte, opts.bufferSize),
 	}
 
 	return cc
@@ -116,7 +151,11 @@ func newClientConnWithOptions(c *net.TCPConn, opts options) *Conn {
 // and blocks until an error occurs or the context is canceled.
 // The connection is automatically closed when Run returns.
 func (c *Conn) Run(ctx context.Context) error {
-	c.logger.Debug("connection started", "addr", c.Addr())
+	c.logger.Info("connection established", "addr", c.Addr())
+	c.logger.Debug("connection options", "addr", c.Addr(),
+		"buffer_size", c.opts.bufferSize,
+		"max_read_length", c.opts.maxReadLength,
+		"idle_timeout", c.opts.idleTimeout)
 
 	ctx, c.cancel = context.WithCancel(ctx)
 	group, child := errgroup.WithContext(ctx)
@@ -132,10 +171,10 @@ func (c *Conn) Run(ctx context.Context) error {
 	err := group.Wait()
 	c.closeConn()
 
-	if err != nil {
-		c.logger.Debug("connection closed with error", "addr", c.Addr(), "error", err)
+	if err != nil && !errors.Is(err, context.Canceled) {
+		c.logger.Info("connection closed with error", "addr", c.Addr(), "error", err)
 	} else {
-		c.logger.Debug("connection closed", "addr", c.Addr())
+		c.logger.Info("connection closed", "addr", c.Addr())
 	}
 
 	return err
@@ -160,11 +199,28 @@ func (c *Conn) IsClosed() bool {
 }
 
 // ErrBufferFull is returned when the send buffer is full and cannot accept more messages.
+// This error indicates backpressure - the receiver is not consuming messages fast enough.
+// Recommended handling strategies:
+//   - Drop the message (for non-critical data like metrics)
+//   - Use WriteBlocking or WriteTimeout to wait for buffer space
+//   - Implement application-level flow control
 var ErrBufferFull = errors.New("send buffer full")
 
-// Write sends a message through the connection without blocking.
+// Write sends a message through the connection without blocking (fire-and-forget).
 // The message is encoded using the configured codec and queued for sending.
-// Returns ErrBufferFull if the send buffer is full, or ErrConnectionClosed if closed.
+//
+// Returns:
+//   - nil: message was successfully queued (not yet sent)
+//   - ErrBufferFull: send buffer is full, message was NOT queued
+//   - ErrConnectionClosed: connection is closed
+//   - encoding error: if codec.Encode fails
+//
+// Use this method when:
+//   - You can tolerate message loss under backpressure
+//   - You have your own retry/backpressure logic
+//   - Low latency is critical and blocking is unacceptable
+//
+// For guaranteed delivery, use WriteBlocking or WriteTimeout instead.
 func (c *Conn) Write(message Message) error {
 	if c.closed.Load() {
 		return ErrConnectionClosed
@@ -184,8 +240,19 @@ func (c *Conn) Write(message Message) error {
 }
 
 // WriteBlocking sends a message through the connection, blocking until the message
-// is queued or the context is canceled.
-// Returns ErrConnectionClosed if the connection is closed.
+// is queued or the context is canceled. This is the safest write method for
+// guaranteed delivery.
+//
+// Returns:
+//   - nil: message was successfully queued
+//   - context.Canceled or context.DeadlineExceeded: context was canceled
+//   - ErrConnectionClosed: connection is closed
+//   - encoding error: if codec.Encode fails
+//
+// Use this method when:
+//   - Message delivery is critical
+//   - You have proper timeout handling via context
+//   - Blocking is acceptable for your use case
 func (c *Conn) WriteBlocking(ctx context.Context, message Message) error {
 	if c.closed.Load() {
 		return ErrConnectionClosed
@@ -205,8 +272,17 @@ func (c *Conn) WriteBlocking(ctx context.Context, message Message) error {
 }
 
 // WriteTimeout sends a message through the connection with a timeout.
-// Returns ErrBufferFull if the message cannot be queued within the timeout,
-// or ErrConnectionClosed if the connection is closed.
+// This provides a middle ground between Write (non-blocking) and WriteBlocking.
+//
+// Returns:
+//   - nil: message was successfully queued
+//   - ErrBufferFull: timeout expired before message could be queued
+//   - ErrConnectionClosed: connection is closed
+//   - encoding error: if codec.Encode fails
+//
+// Use this method when:
+//   - You want to wait for buffer space but with a time limit
+//   - You don't have an existing context to pass
 func (c *Conn) WriteTimeout(message Message, timeout time.Duration) error {
 	if c.closed.Load() {
 		return ErrConnectionClosed
@@ -233,15 +309,19 @@ func (c *Conn) Addr() net.Addr {
 // readLoop continuously reads from the connection and processes messages.
 // It decodes incoming data using the configured codec and calls the message handler.
 // Returns when the context is canceled or an unrecoverable error occurs.
+// Messages exceeding maxReadLength will return ErrMessageTooLarge.
 func (c *Conn) readLoop(ctx context.Context) error {
 	for {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
-			_ = c.rawConn.SetReadDeadline(time.Now().Add(c.opts.heartbeat * 2))
+			_ = c.rawConn.SetReadDeadline(time.Now().Add(c.opts.idleTimeout * 2))
 
-			message, err := c.opts.codec.Decode(c.reader)
+			// Reset the limit for each message
+			c.limitedReader.reset(int64(c.opts.maxReadLength))
+
+			message, err := c.opts.codec.Decode(c.limitedReader)
 			if err != nil {
 				c.logger.Debug("read error", "addr", c.Addr(), "error", err)
 				if c.opts.onError(err) == Disconnect {
@@ -276,7 +356,7 @@ func (c *Conn) writeLoop(ctx context.Context) error {
 // If an error occurs and onError returns true, the error is propagated.
 // Otherwise, the error is suppressed and writing continues.
 func (c *Conn) write(data []byte) error {
-	_ = c.rawConn.SetWriteDeadline(time.Now().Add(c.opts.heartbeat * 2))
+	_ = c.rawConn.SetWriteDeadline(time.Now().Add(c.opts.idleTimeout * 2))
 
 	_, err := c.rawConn.Write(data)
 

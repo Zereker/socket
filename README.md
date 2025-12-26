@@ -10,7 +10,7 @@ A simple, high-performance TCP server framework for Go.
 - **Simple API** - Easy to use with functional options pattern
 - **Custom Codec** - Pluggable message encoding/decoding via `io.Reader`
 - **Graceful Shutdown** - Context-based cancellation support
-- **Heartbeat** - Automatic read/write deadline management
+- **Idle Timeout** - Automatic read/write deadline management for connection health
 - **Error Handling** - Flexible error handling with `Disconnect` or `Continue` actions
 - **Structured Logging** - Built-in `slog` integration
 
@@ -99,10 +99,12 @@ func main() {
 | `CustomCodecOption(codec)` | Set message codec (required) | - |
 | `OnMessageOption(handler)` | Set message handler (required) | - |
 | `OnErrorOption(handler)` | Set error handler | Disconnect on error |
-| `HeartbeatOption(duration)` | Set heartbeat interval | 30s |
+| `IdleTimeoutOption(duration)` | Set idle timeout for read/write deadlines | 30s |
 | `BufferSizeOption(size)` | Set send channel buffer size | 1 |
 | `MessageMaxSize(size)` | Set max message size | 1MB |
 | `LoggerOption(logger)` | Set custom logger | slog default |
+
+> **Note:** The idle timeout sets TCP read/write deadlines but does not send ping/pong packets. For active connection health checking, implement heartbeat messages in your application protocol.
 
 ## Error Handling
 
@@ -134,20 +136,39 @@ addr := conn.Addr()
 
 ## Write Methods
 
-Three ways to send messages:
+Three ways to send messages with different blocking behaviors:
 
 ```go
-// Non-blocking write, returns ErrBufferFull if channel is full
-conn.Write(msg)
+// Non-blocking write (fire-and-forget)
+// Returns ErrBufferFull immediately if channel is full
+// Best for: non-critical data, custom backpressure handling
+err := conn.Write(msg)
+if errors.Is(err, socket.ErrBufferFull) {
+    // Handle backpressure: drop, retry, or use blocking write
+}
 
 // Blocking write with context cancellation
+// Waits for buffer space, respects context timeout/cancellation
+// Best for: critical messages that must be delivered
+ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+defer cancel()
 conn.WriteBlocking(ctx, msg)
 
 // Write with timeout
+// Waits up to the specified duration for buffer space
+// Best for: simple timeout without context management
 conn.WriteTimeout(msg, 5*time.Second)
 ```
 
 All write methods return `ErrConnectionClosed` if the connection is closed.
+
+### Backpressure Handling
+
+When `ErrBufferFull` is returned, it indicates the receiver is not consuming messages fast enough. Strategies:
+- **Drop**: Acceptable for metrics, heartbeats, or non-critical updates
+- **Retry with backoff**: For important but delay-tolerant messages
+- **Switch to blocking**: Use `WriteBlocking` when delivery is critical
+- **Flow control**: Implement application-level rate limiting
 
 ## Custom Logger
 
