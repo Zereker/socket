@@ -243,3 +243,18 @@ func TestServer_Serve_ContextCanceled(t *testing.T) {
 		t.Fatal("timeout waiting for Serve to return")
 	}
 }
+
+func TestServerLoggerOption(t *testing.T) {
+	logger := &mockLogger{}
+	addr := &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0}
+
+	server, err := New(addr, ServerLoggerOption(logger))
+	if err != nil {
+		t.Fatalf("New failed: %v", err)
+	}
+	defer server.Close()
+
+	if server.logger != logger {
+		t.Error("logger not set correctly")
+	}
+}

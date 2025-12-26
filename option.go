@@ -26,7 +26,7 @@ type options struct {
 
 	bufferSize    int           // size of buffered channel
 	maxReadLength int           // maximum size of a single message
-	heartbeat     time.Duration // heartbeat interval for read/write deadlines
+	idleTimeout   time.Duration // idle timeout for read/write deadlines
 }
 
 // Option is a function that configures connection options.
@@ -48,11 +48,17 @@ func BufferSizeOption(size int) Option {
 	}
 }
 
-// HeartbeatOption returns an Option that sets the heartbeat interval.
-// This determines the read/write deadline timeout (heartbeat * 2).
-func HeartbeatOption(heartbeat time.Duration) Option {
+// IdleTimeoutOption returns an Option that sets the idle timeout for connections.
+// If no data is received within the timeout period, the connection will be closed.
+// The actual read/write deadline is set to idleTimeout * 2 to allow for some network latency.
+// Default is 30 seconds.
+//
+// Note: This is NOT a heartbeat mechanism that sends ping/pong packets.
+// It only sets TCP read/write deadlines. If you need active connection health checking,
+// implement ping/pong messages in your application protocol.
+func IdleTimeoutOption(timeout time.Duration) Option {
 	return func(o *options) {
-		o.heartbeat = heartbeat
+		o.idleTimeout = timeout
 	}
 }
 
