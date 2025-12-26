@@ -8,6 +8,28 @@
 # Test binary, build with `go test -c`
 *.test
 
-# Output of the go coverage tool, specifically when used with LiteIDE
+# Output of the go coverage tool
 *.out
-.idea
+coverage.out
+
+# Profiling
+*.prof
+
+# Debug binary (dlv)
+__debug_bin*
+
+# Go workspace
+go.work
+go.work.sum
+
+# IDE
+.idea/
+.vscode/
+.claude/
+
+# macOS
+.DS_Store
+
+# Environment
+.env
+.env.local
